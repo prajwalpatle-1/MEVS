@@ -1,0 +1,117 @@
+:root {
+  --bg: #0f1724;
+  --card: #0b1220;
+  --muted: #9aa4b2;
+  --accent: #50b2ff;
+  --accent-2: #7b61ff;
+  --success: #6ee7b7;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif;
+  background: linear-gradient(180deg, #071226 0%, #071a2e 100%);
+  color: #e6eef6
+}
+
+.card {
+  width: 360px;
+  padding: 14px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
+  box-shadow: 0 6px 18px rgba(2, 6, 23, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.03)
+}
+
+.card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px
+}
+
+.card-header h1 {
+  margin: 0;
+  font-size: 20px;
+  color: var(--accent-2)
+}
+
+.card-header small {
+  color: var(--muted)
+}
+
+.card-body {
+  margin-top: 10px
+}
+
+.btn-primary {
+  display: inline-block;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  color: #072233;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 14px rgba(79, 144, 255, 0.18)
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: default
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  border-top-color: var(--accent);
+  opacity: 0;
+  transform: scale(0.7);
+  transition: all .18s ease
+}
+
+.spinner.visible {
+  opacity: 1;
+  transform: scale(1);
+  animation: spin 1s linear infinite
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg)
+  }
+}
+
+.status-text {
+  color: var(--muted);
+  font-size: 13px
+}
+
+.output {
+  margin-top: 12px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(3, 10, 18, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  font-size: 13px;
+  white-space: pre-wrap;
+  color: #d7e7f7
+}
+
+.card-footer {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px
+}

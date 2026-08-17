@@ -1,0 +1,20 @@
+# Environments
+.venv/
+env/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Testing Cache
+.pytest_cache/
+.tox/
+.coverage
+
+# Project Outputs / Generated Files
+mevs_outputs/
+CACHEDIR.TAG
+
+# Secrets and Config (Highly Recommended)
+.env
