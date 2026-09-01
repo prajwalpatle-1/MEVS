@@ -45,8 +45,42 @@ body {
   margin-top: 10px
 }
 
+label {
+  display: block;
+  margin: 12px 0 6px;
+  color: #d7e7f7;
+  font-size: 12px;
+  font-weight: 600
+}
+
+input,
+textarea {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+  padding: 9px;
+  background: rgba(3, 10, 18, 0.55);
+  color: #e6eef6;
+  font: inherit;
+  resize: vertical
+}
+
+input:focus,
+textarea:focus {
+  outline: 2px solid rgba(80, 178, 255, 0.35);
+  border-color: var(--accent)
+}
+
+.hint {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 11px
+}
+
 .btn-primary {
   display: inline-block;
+  margin-top: 12px;
   padding: 10px 14px;
   border-radius: 8px;
   border: none;

@@ -2,6 +2,12 @@ const btn = document.getElementById('summarize');
 const output = document.getElementById('output');
 const spinner = document.getElementById('spinner');
 const statusText = document.getElementById('statusText');
+const videoUrl = document.getElementById('videoUrl');
+const transcript = document.getElementById('transcript');
+
+chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+  if (tab?.url?.includes('youtube.com/watch')) videoUrl.value = tab.url;
+});
 
 async function setLoading(loading) {
   if (loading) {
@@ -16,16 +22,19 @@ async function setLoading(loading) {
 }
 
 btn.addEventListener('click', async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const url = tab?.url;
-  if (!url) return;
+  const url = videoUrl.value.trim();
+  const pastedTranscript = transcript.value.trim();
+  if (!url && !pastedTranscript) {
+    statusText.textContent = 'Add a link or transcript';
+    return;
+  }
   output.textContent = '';
   await setLoading(true);
   try {
     const res = await fetch('http://localhost:8000/summarize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
+      body: JSON.stringify({ url, transcript: pastedTranscript })
     });
     if (!res.ok) {
       const errText = await res.text();

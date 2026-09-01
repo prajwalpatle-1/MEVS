@@ -12,7 +12,12 @@
         <small>Multimodal Educational Video Summarizer</small>
       </header>
       <main class="card-body">
-        <button id="summarize" class="btn-primary">Summarize Active Tab</button>
+        <label for="videoUrl">Video link</label>
+        <input id="videoUrl" type="url" placeholder="Paste a YouTube link" />
+        <p class="hint">Captions are fetched automatically when available.</p>
+        <label for="transcript">Or paste transcript</label>
+        <textarea id="transcript" rows="5" placeholder="Paste transcript text here if captions are unavailable"></textarea>
+        <button id="summarize" class="btn-primary">Create Summary</button>
         <div id="status" class="status-row">
           <span id="spinner" class="spinner" aria-hidden="true"></span>
           <span id="statusText" class="status-text">Idle</span>
