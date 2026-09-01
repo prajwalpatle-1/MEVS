@@ -21,6 +21,13 @@ This repository contains:
 - A minimal Chrome extension in `mevs/frontend/` (Manifest V3) that grabs the
 	active tab's YouTube URL and POSTs it to the backend.
 
+The `/summarize` endpoint supports two modes. With a YouTube link, it fetches
+captions (or uses Whisper if captions are unavailable), downloads the video,
+extracts representative frames, runs OCR on those frames, aligns slide text
+with transcript timestamps, and returns a combined Markdown summary. A pasted
+transcript can also be submitted without a link; this skips video and OCR and
+summarizes the supplied text.
+
 Outputs and artifacts
 - Summaries and keyframes are saved under `mevs_outputs/` in the current
 	working directory when the `/summarize` endpoint is used.
