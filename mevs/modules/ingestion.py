@@ -18,14 +18,9 @@ from typing import List, Dict, Optional
 import shutil
 import zipfile
 import urllib.request
-import sys
 
 try:
     from youtube_transcript_api import YouTubeTranscriptApi
-    from youtube_transcript_api._errors import (
-        TranscriptsDisabled,
-        NoTranscriptAvailable,
-    )
 except Exception:  # pragma: no cover - allow graceful import failure
     YouTubeTranscriptApi = None
 
@@ -47,28 +42,37 @@ class FFMPEGNotFoundError(Exception):
     """Raised when ffmpeg/ffprobe are not available on the system."""
 
 
+class VideoDownloadError(Exception):
+    """Raised when YouTube media cannot be downloaded."""
+
+
 def _ffmpeg_in_path() -> Optional[str]:
-    """Return path to ffmpeg binary if available, otherwise None."""
+    """Return a directory containing both ffmpeg and ffprobe, if available."""
+    executable = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    probe = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+
     # check explicit env overrides first
     for key in ("FFMPEG_PATH", "FFMPEG_LOCATION"):
         p = os.environ.get(key)
         if p:
-            # if a bin path was provided, accept it
-            candidate = os.path.join(p, "ffmpeg.exe") if os.name == "nt" else os.path.join(p, "ffmpeg")
-            if os.path.exists(candidate):
+            if os.path.isfile(p):
+                p = os.path.dirname(p)
+            if (
+                os.path.isfile(os.path.join(p, executable))
+                and os.path.isfile(os.path.join(p, probe))
+            ):
                 return os.path.abspath(p)
-            # maybe the value points directly to the binary
-            if os.path.exists(p):
-                return os.path.abspath(os.path.dirname(p))
+
     # fallback to PATH
     ff = shutil.which("ffmpeg")
-    if ff:
+    fp = shutil.which("ffprobe")
+    if ff and fp:
         return os.path.abspath(os.path.dirname(ff))
     return None
 
 
 def _download_and_extract_ffmpeg(dest_dir: str) -> Optional[str]:
-    """Download a lightweight ffmpeg build for Windows and extract it to dest_dir.
+    """Download a lightweight ffmpeg build and extract it to dest_dir.
 
     Returns the path to the `bin` folder on success, or None on failure.
     """
@@ -88,10 +92,9 @@ def _download_and_extract_ffmpeg(dest_dir: str) -> Optional[str]:
         with zipfile.ZipFile(tmpzip, "r") as z:
             z.extractall(dest_dir)
         os.remove(tmpzip)
-        # find bin folder inside extracted tree
+        # Find the directory containing both tools inside the extracted tree.
         for root, dirs, files in os.walk(dest_dir):
-            if "ffmpeg.exe" in files or "ffmpeg" in files:
-                # bin is the parent containing ffmpeg
+            if "ffmpeg.exe" in files and "ffprobe.exe" in files:
                 return os.path.abspath(root)
         return None
     except Exception:
@@ -102,20 +105,31 @@ def _download_and_extract_ffmpeg(dest_dir: str) -> Optional[str]:
 def ensure_ffmpeg_available() -> str:
     """Ensure ffmpeg is available and return the bin folder path.
 
-    If ffmpeg isn't present and the environment variable `MEVS_AUTO_INSTALL_FFMPEG`
-    is set to a truthy value, this will attempt to download a static build into
-    `.mevs_ffmpeg/` inside the project and add it to the PATH for the running
-    process.
+    If ffmpeg isn't present and `MEVS_AUTO_INSTALL_FFMPEG` is truthy, this
+    downloads a static build into `.mevs_ffmpeg/` and updates this process
+    PATH.
     """
     path = _ffmpeg_in_path()
+    if not path:
+        local_dir = os.path.join(os.path.abspath(os.getcwd()), ".mevs_ffmpeg")
+        for root, dirs, files in os.walk(local_dir):
+            if "ffmpeg.exe" in files and "ffprobe.exe" in files:
+                path = root
+                os.environ["PATH"] = path + os.pathsep + os.environ.get(
+                    "PATH", ""
+                )
+                os.environ["FFMPEG_PATH"] = path
+                break
     if path:
         return path
 
     auto = os.environ.get("MEVS_AUTO_INSTALL_FFMPEG")
     if not auto or auto.lower() not in ("1", "true", "yes"):
-        raise FFMPEGNotFoundError("ffmpeg not found on PATH or FFMPEG_PATH not set")
+        raise FFMPEGNotFoundError(
+            "ffmpeg not found on PATH or FFMPEG_PATH not set"
+        )
 
-    # attempt automatic download
+    # Attempt automatic download.
     proj_dir = os.path.abspath(os.getcwd())
     dest = os.path.join(proj_dir, ".mevs_ffmpeg")
     bin_path = _download_and_extract_ffmpeg(dest)
@@ -128,7 +142,6 @@ def ensure_ffmpeg_available() -> str:
     os.environ["FFMPEG_PATH"] = bin_path
     logger.info("ffmpeg available at %s and added to PATH", bin_path)
     return bin_path
-
 
 
 def _extract_video_id(youtube_url: str) -> Optional[str]:
@@ -170,19 +183,28 @@ def fetch_subtitles(youtube_url: str) -> Optional[List[Dict]]:
         logger.error("Could not parse video id from URL: %s", youtube_url)
         return None
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(vid)
-        # transcript entries already contain 'text', 'start', 'duration'
+        # Version 1.x uses an instance method and returns typed snippets.
+        api = YouTubeTranscriptApi()
+        if hasattr(api, "fetch"):
+            transcript = api.fetch(vid)
+            if hasattr(transcript, "to_raw_data"):
+                transcript = transcript.to_raw_data()
+        else:
+            # Compatibility with older youtube-transcript-api releases.
+            transcript = YouTubeTranscriptApi.get_transcript(vid)
+        # Entries contain 'text', 'start', and 'duration'.
         seg_count = len(transcript)
         msg = "Fetched %d subtitle segments from YouTube"
         logger.info(msg, seg_count)
         return transcript
-    except TranscriptsDisabled:
-        logger.info("Transcripts are disabled for video %s", vid)
-        return None
-    except NoTranscriptAvailable:
-        logger.info("No transcript available for video %s", vid)
-        return None
     except Exception as exc:
+        if type(exc).__name__ in {
+            "TranscriptsDisabled",
+            "NoTranscriptFound",
+            "NoTranscriptAvailable",
+        }:
+            logger.info("No transcript available for video %s", vid)
+            return None
         logger.exception("Unexpected error fetching transcript: %s", exc)
         return None
 
@@ -199,13 +221,20 @@ def download_audio(
         logger.error("yt_dlp not available; please install yt-dlp")
         return None
     if out_path is None:
-        fd, temp = tempfile.mkstemp(suffix=".mp3")
-        os.close(fd)
-        out_path = temp
+        temp_dir = tempfile.mkdtemp(prefix="mevs_audio_")
+        output_stem = os.path.join(temp_dir, "audio")
+        out_path = output_stem + ".mp3"
+    else:
+        output_stem, _ = os.path.splitext(out_path)
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+
+    # Let yt-dlp create the file. Pre-creating an empty .mp3 can make ffprobe
+    # inspect that empty file instead of the downloaded source stream.
+    output_template = output_stem + ".%(ext)s"
 
     ydl_opts = {
         "format": "bestaudio/best",
-        "outtmpl": out_path,
+        "outtmpl": output_template,
         "quiet": True,
         "noplaylist": True,
         "postprocessors": [
@@ -218,21 +247,28 @@ def download_audio(
     }
     # Allow overriding ffmpeg/ffprobe location via environment for systems
     # where ffmpeg is not on PATH (useful on Windows).
-    ffmpeg_loc = os.environ.get("FFMPEG_PATH") or os.environ.get("FFMPEG_LOCATION")
-    if not ffmpeg_loc:
-        # ensure availability or auto-install if configured
-        try:
-            ffmpeg_loc = ensure_ffmpeg_available()
-        except FFMPEGNotFoundError:
-            ffmpeg_loc = None
-    if ffmpeg_loc:
-        ydl_opts["ffmpeg_location"] = ffmpeg_loc
+    ffmpeg_loc = ensure_ffmpeg_available()
+    ydl_opts["ffmpeg_location"] = ffmpeg_loc
+    node_path = shutil.which("node")
+    if node_path:
+        ydl_opts["js_runtimes"] = {"node": {"path": node_path}}
+    player_client = os.environ.get("MEVS_YTDLP_PLAYER_CLIENT")
+    if player_client:
+        ydl_opts["extractor_args"] = {
+            "youtube": {"player_client": [player_client]}
+        }
+    browser = os.environ.get("MEVS_YTDLP_BROWSER")
+    cookie_file = os.environ.get("MEVS_YTDLP_COOKIE_FILE")
+    if browser:
+        ydl_opts["cookiesfrombrowser"] = (browser,)
+    elif cookie_file:
+        ydl_opts["cookiefile"] = cookie_file
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             msg = "Downloading audio for %s to %s"
             logger.info(msg, youtube_url, out_path)
             ydl.download([youtube_url])
-        if os.path.exists(out_path):
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
             msg = "Audio downloaded to %s"
             logger.info(msg, out_path)
             return out_path
@@ -241,15 +277,20 @@ def download_audio(
         )
         return None
     except Exception as exc:
-        # Detect common ffmpeg/ffprobe missing failure from yt-dlp
+        # Detect only missing binaries. Codec/read errors are different
+        # download failures and should not be reported as missing ffmpeg.
         emsg = str(exc).lower()
-        if "ffprobe" in emsg or "ffmpeg" in emsg:
-            logger.exception("ffmpeg/ffprobe not found for yt-dlp: %s", exc)
+        missing_binary = (
+            "not found" in emsg
+            and ("ffprobe" in emsg or "ffmpeg" in emsg)
+        ) or isinstance(exc, FileNotFoundError)
+        if missing_binary:
+            logger.exception("ffmpeg/ffprobe unavailable for yt-dlp: %s", exc)
             raise FFMPEGNotFoundError(
                 "ffmpeg/ffprobe not found. Install ffmpeg or set FFMPEG_PATH."
             )
         logger.exception("Failed to download audio with yt-dlp")
-        return None
+        raise VideoDownloadError(str(exc))
 
 
 def transcribe_with_whisper(
@@ -270,12 +311,8 @@ def transcribe_with_whisper(
             "Loading Whisper model '%s' (this may take time)...",
             model_name,
         )
-        # Ensure ffmpeg available for Whisper subprocesses
-        try:
-            ensure_ffmpeg_available()
-        except FFMPEGNotFoundError:
-            # let the subsequent FileNotFoundError handler raise a clearer error
-            pass
+        # Whisper launches ffmpeg as a subprocess, so it must be on PATH.
+        ensure_ffmpeg_available()
         model = whisper.load_model(model_name)
         logger.info("Transcribing audio: %s", audio_path)
         result = model.transcribe(audio_path)
@@ -296,7 +333,9 @@ def transcribe_with_whisper(
     except FileNotFoundError as exc:
         # Whisper/ffmpeg subprocess may raise FileNotFoundError when ffmpeg
         # is not available on PATH. Surface a clearer error to the caller.
-        logger.exception("Whisper failed due to missing system binary: %s", exc)
+        logger.exception(
+            "Whisper failed due to missing system binary: %s", exc
+        )
         raise FFMPEGNotFoundError(
             "ffmpeg not found for Whisper. Install ffmpeg or set FFMPEG_PATH."
         )
@@ -370,10 +409,51 @@ def chunk_segments(
     return chunks
 
 
+def chunk_plain_text(text: str, chunk_duration: int = 120) -> List[Dict]:
+    """Convert pasted transcript text into timestamp-free summary chunks.
+
+    Pasted text has no reliable timing metadata, so paragraphs are grouped
+    into approximate windows and assigned sequential timestamps for display.
+    """
+    paragraphs = [
+        _clean_text(part) for part in re.split(r"\n\s*\n", text or "")
+    ]
+    paragraphs = [part for part in paragraphs if part]
+    if not paragraphs:
+        return []
+
+    chunks: List[Dict] = []
+    current: List[str] = []
+    current_length = 0
+    start = 0.0
+    for paragraph in paragraphs:
+        words = len(paragraph.split())
+        if current and current_length + words > 180:
+            end = start + chunk_duration
+            chunks.append(
+                {"start": start, "end": end, "text": " ".join(current)}
+            )
+            start = end
+            current = []
+            current_length = 0
+        current.append(paragraph)
+        current_length += words
+    if current:
+        chunks.append(
+            {
+                "start": start,
+                "end": start + chunk_duration,
+                "text": " ".join(current),
+            }
+        )
+    return chunks
+
+
 def get_transcript_chunks(
     youtube_url: str,
     prefer_subtitles: bool = True,
     whisper_model: str = "small",
+    allow_whisper_fallback: bool = True,
 ) -> Optional[List[Dict]]:
     """Top-level helper.
 
@@ -397,6 +477,12 @@ def get_transcript_chunks(
                 }
                 segments.append(entry)
             return chunk_segments(segments)
+
+    # Audio download and Whisper are optional because transcript-only mode
+    # should not require ffmpeg or a large local speech model.
+    if not allow_whisper_fallback:
+        logger.info("No API transcript available; Whisper fallback disabled")
+        return None
 
     # fallback to download+whisper
     tmp_audio = None

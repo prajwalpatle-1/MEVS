@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import tempfile
 import logging
+import shutil
 from typing import List, Dict, Optional, Tuple
 
 try:
@@ -48,18 +49,46 @@ def download_video(
         logger.error("yt_dlp not installed")
         return None
     if out_path is None:
-        fd, out_path = tempfile.mkstemp(suffix=".mp4")
-        os.close(fd)
+        temp_dir = tempfile.mkdtemp(prefix="mevs_video_")
+        output_stem = os.path.join(temp_dir, "video")
+        out_path = output_stem + ".mp4"
+    else:
+        output_stem, _ = os.path.splitext(out_path)
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    output_template = output_stem + ".%(ext)s"
     opts = {
-        "format": "bestvideo+bestaudio/best",
-        "outtmpl": out_path,
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "outtmpl": output_template,
         "quiet": True,
         "noplaylist": True,
+        "merge_output_format": "mp4",
     }
+    ffmpeg_loc = os.environ.get("FFMPEG_PATH") or os.environ.get(
+        "FFMPEG_LOCATION"
+    )
+    if ffmpeg_loc:
+        opts["ffmpeg_location"] = ffmpeg_loc
+    node_path = shutil.which("node")
+    if node_path:
+        opts["js_runtimes"] = {"node": {"path": node_path}}
+    player_client = os.environ.get("MEVS_YTDLP_PLAYER_CLIENT")
+    if player_client:
+        opts["extractor_args"] = {
+            "youtube": {"player_client": [player_client]}
+        }
+    browser = os.environ.get("MEVS_YTDLP_BROWSER")
+    cookie_file = os.environ.get("MEVS_YTDLP_COOKIE_FILE")
+    if browser:
+        opts["cookiesfrombrowser"] = (browser,)
+    elif cookie_file:
+        opts["cookiefile"] = cookie_file
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([youtube_url])
-        return out_path
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            return out_path
+        logger.error("Video download output is missing or empty: %s", out_path)
+        return None
     except Exception:
         logger.exception("Failed to download video")
         return None
