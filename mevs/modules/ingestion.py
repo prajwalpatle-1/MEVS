@@ -186,7 +186,31 @@ def fetch_subtitles(youtube_url: str) -> Optional[List[Dict]]:
         # Version 1.x uses an instance method and returns typed snippets.
         api = YouTubeTranscriptApi()
         if hasattr(api, "fetch"):
-            transcript = api.fetch(vid)
+            # Prefer English variants such as en-IN, then use any caption
+            # track when a video has no English captions.
+            tracks = list(api.list(vid))
+            preferred = next(
+                (
+                    track
+                    for track in tracks
+                    if track.language_code == "en"
+                ),
+                None,
+            )
+            if preferred is None:
+                preferred = next(
+                    (
+                        track
+                        for track in tracks
+                        if track.language_code.startswith("en-")
+                    ),
+                    None,
+                )
+            if preferred is None and tracks:
+                preferred = tracks[0]
+            if preferred is None:
+                return None
+            transcript = preferred.fetch()
             if hasattr(transcript, "to_raw_data"):
                 transcript = transcript.to_raw_data()
         else:

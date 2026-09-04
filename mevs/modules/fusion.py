@@ -5,9 +5,8 @@ import os
 import logging
 from typing import List, Dict, Optional
 
-from transformers import pipeline
-
 logger = logging.getLogger(__name__)
+_SUMMARIZER_CACHE = {}
 
 
 def align_ocr_with_chunks(
@@ -29,23 +28,11 @@ def align_ocr_with_chunks(
 
 
 def _build_prompt(chunk: Dict) -> str:
-    header = f"Timestamp: {chunk['start']:.1f}s - {chunk['end']:.1f}s\n"
     transcript = chunk.get("text", "")
     ocr_text = "\n".join(chunk.get("ocr_texts", []))
-    prompt_parts = [
-        "You are an expert educator. Given the transcript excerpt and",
-        "extracted slide text, produce Structured Educational Notes with:",
-        "1) Key Concepts, 2) Definitions, 3) Bullet Points,",
-        "4) Example or short explanation. Output as Markdown.",
-        "\n\n",
-        header,
-        "\nTranscript:\n",
-        transcript,
-        "\n\nSlide Text:\n",
-        ocr_text,
-        "\n\nNotes:\n",
-    ]
-    return "".join(prompt_parts)
+    if ocr_text:
+        return f"{transcript}\nSlide text: {ocr_text}"
+    return transcript
 
 
 def summarize_chunks(
@@ -55,18 +42,52 @@ def summarize_chunks(
 
     Returns list of {'start','end','summary','markdown'}.
     """
-    summarizer = pipeline(
-        "summarization",
-        model=model_name,
-    )
+    """Generate concise summaries from transcript and OCR text.
+
+    The model is loaded once per process and each input is capped so long
+    videos do not exceed the model tokenizer or CPU memory budget.
+    """
+    if not chunks:
+        return []
+    try:
+        from transformers import pipeline
+
+        if model_name not in _SUMMARIZER_CACHE:
+            _SUMMARIZER_CACHE[model_name] = pipeline(
+                "summarization",
+                model=model_name,
+                device=-1,
+            )
+        summarizer = _SUMMARIZER_CACHE[model_name]
+    except Exception as exc:
+        logger.exception("Could not load summarization model '%s'", model_name)
+        raise RuntimeError(
+            "Summarization model could not be loaded. Install a compatible "
+            "Transformers 4.x release and ensure the model is downloaded."
+        ) from exc
+
     results: List[Dict] = []
     for c in chunks:
-        prompt = _build_prompt(c)
+        # DistilBART accepts up to 1024 tokens. Keep the source smaller for
+        # predictable CPU time and leave room for OCR text.
+        prompt = _build_prompt(c)[:6000]
+        if not prompt.strip():
+            summary = "No usable transcript or slide text was found."
+            out = []
+        else:
+            out = None
+        source_words = len(prompt.split())
+        max_length = max(24, min(160, source_words))
+        min_length = min(30, max(8, max_length // 4))
         try:
-            out = summarizer(
-                prompt, max_length=200, min_length=50, do_sample=False
-            )
-            summary = out[0]["summary_text"]
+            if out is None:
+                out = summarizer(
+                    prompt,
+                    max_length=max_length,
+                    min_length=min_length,
+                    do_sample=False,
+                )
+                summary = out[0]["summary_text"].strip()
         except Exception:
             logger.exception(
                 "Summarization failed for chunk %s-%s", c["start"], c["end"]
