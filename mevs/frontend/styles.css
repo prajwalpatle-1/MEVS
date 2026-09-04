@@ -9,14 +9,16 @@
 
 html,
 body {
-  height: 100%;
+  min-height: 100%;
   margin: 0;
   font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif;
   background: linear-gradient(180deg, #071226 0%, #071a2e 100%);
-  color: #e6eef6
+  color: #e6eef6;
+  overflow-y: auto
 }
 
 .card {
+  box-sizing: border-box;
   width: 360px;
   padding: 14px;
   border-radius: 12px;

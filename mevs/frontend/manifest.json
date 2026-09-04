@@ -3,6 +3,10 @@
   "name": "MEVS Summarizer",
   "version": "0.1",
   "permissions": ["activeTab", "scripting"],
+  "host_permissions": [
+    "http://localhost:8000/*",
+    "http://127.0.0.1:8000/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Summarize Video"

@@ -41,7 +41,12 @@ btn.addEventListener('click', async () => {
       output.textContent = `Server error: ${res.status} ${res.statusText}\n${errText}`;
     } else {
       const data = await res.json();
-      output.textContent = data.markdown || JSON.stringify(data, null, 2);
+      if (typeof data.markdown === 'string' && data.markdown.trim()) {
+        output.textContent = data.markdown;
+        output.scrollIntoView({ block: 'start' });
+      } else {
+        output.textContent = 'The server returned an empty summary.';
+      }
     }
   } catch (err) {
     output.textContent = 'Network error: ' + (err.message || err);
