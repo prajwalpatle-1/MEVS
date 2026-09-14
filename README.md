@@ -82,10 +82,11 @@ Markdown summary and local relative links to saved keyframe images.
 Configuration & notes
 - Whisper model: set `whisper_model` to a supported model name (e.g. "small",
 	"medium") to trade off speed vs accuracy. Large models require more RAM.
-- LLM summarization: `mevs/modules/fusion.py` currently uses a
-	HuggingFace Transformers summarization pipeline (default
-	`sshleifer/distilbart-cnn-12-6`) for offline summarization. You can swap
-	this to an OpenAI/Gemini/other API by updating `fusion.summarize_chunks` and
+- LLM summarization: `mevs/modules/fusion.py` uses FLAN-T5-large through a
+	HuggingFace Transformers text-to-text pipeline. Long transcripts are
+	summarized in bounded sections and reduced into one complete bullet-point
+	summary, so later parts of a lecture are not truncated. You can swap this
+	to an OpenAI/Gemini/other API by updating `fusion.summarize_chunks` and
 	providing API keys as environment variables. For production deployments,
 	using a hosted LLM via LangChain or direct API calls with proper rate
 	limiting and caching is recommended.
