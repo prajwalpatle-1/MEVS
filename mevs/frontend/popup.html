@@ -1,33 +1,37 @@
 <!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>MEVS Summarizer</title>
-    <link rel="stylesheet" href="styles.css">
-  </head>
-  <body>
-    <div class="card">
-      <header class="card-header">
-        <h1>MEVS</h1>
-        <small>Multimodal Educational Video Summarizer</small>
-      </header>
-      <main class="card-body">
-        <label for="videoUrl">Video link</label>
-        <input id="videoUrl" type="url" placeholder="Paste a YouTube link" />
-        <p class="hint">Captions are fetched automatically when available.</p>
-        <label for="transcript">Or paste transcript</label>
-        <textarea id="transcript" rows="5" placeholder="Paste transcript text here if captions are unavailable"></textarea>
-        <button id="summarize" class="btn-primary">Create Summary</button>
-        <div id="status" class="status-row">
-          <span id="spinner" class="spinner" aria-hidden="true"></span>
-          <span id="statusText" class="status-text">Idle</span>
-        </div>
-        <div id="output" class="output" aria-live="polite"></div>
-      </main>
-      <footer class="card-footer">
-        <small>Processed summaries are saved locally by the backend.</small>
-      </footer>
-    </div>
-    <script src="popup.js"></script>
-  </body>
+
+<head>
+  <meta charset="utf-8" />
+  <title>MEVS Summarizer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="card">
+    <header class="card-header">
+      <h1>MEVS</h1>
+      <small>Multimodal Educational Video Summarizer</small>
+    </header>
+    <main class="card-body">
+      <label for="videoUrl">Video link</label>
+      <input id="videoUrl" type="url" placeholder="Paste a link" />
+      <p class="hint">Captions are fetched automatically when available.</p>
+      <label for="transcript">Or paste transcript</label>
+      <textarea id="transcript" rows="5"
+        placeholder="Paste transcript text here if captions are unavailable"></textarea>
+      <button id="summarize" class="btn-primary">Create Summary</button>
+      <div id="status" class="status-row">
+        <span id="spinner" class="spinner" aria-hidden="true"></span>
+        <span id="statusText" class="status-text">Idle</span>
+      </div>
+      <div id="output" class="output" aria-live="polite"></div>
+    </main>
+    <footer class="card-footer">
+      <small>Processed summaries are saved locally by the backend.</small>
+    </footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+
 </html>

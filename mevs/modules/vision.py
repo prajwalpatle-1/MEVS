@@ -25,13 +25,9 @@ logger = logging.getLogger(__name__)
 
 try:
     # REMOVE THESE LINES
-    # from scenedetect import VideoManager, SceneManager
-    # from scenedetect.detectors import ContentDetector
-
-    from scenedetect import detect, ContentDetector
+    from scenedetect import ContentDetector, detect
 except Exception:
-    VideoManager = None
-    SceneManager = None
+    detect = None
     ContentDetector = None
 
 try:
@@ -97,85 +93,67 @@ def download_video(
         return None
 
 
-# def detect_scenes(
-#     video_path: str, threshold: float = 30.0
-# ) -> List[Tuple[float, float]]:
-#     """Return list of (start_sec, end_sec) scenes detected by
-#     PySceneDetect ContentDetector.
-#     """
-#     if VideoManager is None:
-#         logger.warning(
-#             "scenedetect not available — returning whole video as one scene"
-#         )
-#         # best-effort fallback: return the entire video length as one scene
-#         cap = cv2.VideoCapture(video_path)
-#         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-#         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-#         cap.release()
-#         duration = frame_count / max(1.0, fps)
-#         return [(0.0, float(duration))]
-#     video_manager = VideoManager([video_path])
-#     scene_manager = SceneManager()
-#     scene_manager.add_detector(ContentDetector(threshold=threshold))
-#     try:
-#         video_manager.start()
-#         scene_manager.detect_scenes(frame_source=video_manager)
-#         scene_list = scene_manager.get_scene_list()
-#         scenes: List[Tuple[float, float]] = []
-#         for start, end in scene_list:
-#             scenes.append((start.get_seconds(), end.get_seconds()))
-#         return scenes
-#     except Exception:
-#         logger.exception("Scene detection failed")
-#         # fallback: return whole-video range
-#         cap = cv2.VideoCapture(video_path)
-#         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-#         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-#         cap.release()
-#         duration = frame_count / max(1.0, fps)
-#         return [(0.0, float(duration))]
-#     finally:
-#         try:
-#             video_manager.release()
-#         except Exception:
-#             pass
-
 def detect_scenes(
     video_path: str, threshold: float = 30.0
 ) -> List[Tuple[float, float]]:
     """Return list of (start_sec, end_sec) scenes detected by
     PySceneDetect ContentDetector.
     """
+    if detect is None or ContentDetector is None:
+        logger.warning(
+            "scenedetect not available — returning whole video as one scene"
+        )
+        # best-effort fallback: return the entire video length as one scene
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        cap.release()
+        duration = frame_count / max(1.0, fps)
+        return [(0.0, float(duration))]
     try:
-        # Import modern PySceneDetect API locally to prevent global import crashes
-        from scenedetect import detect, ContentDetector
-        
-        # The detect() function automatically handles the video manager and processing
         scene_list = detect(video_path, ContentDetector(threshold=threshold))
-        
         scenes: List[Tuple[float, float]] = []
         for start, end in scene_list:
             scenes.append((start.get_seconds(), end.get_seconds()))
-            
-        # If no scenes were found (e.g., very short/static video), force fallback
-        if not scenes:
-            raise ValueError("No scenes found, falling back to full duration.")
-            
-        return scenes
-
+        if scenes:
+            return scenes
+        raise ValueError("No scenes found")
     except Exception:
-        logger.exception("Scene detection failed or scenedetect not available")
-        # best-effort fallback: return the entire video length as one scene
-        try:
-            cap = cv2.VideoCapture(video_path)
-            fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-            frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-            cap.release()
-            duration = frame_count / max(1.0, fps)
-            return [(0.0, float(duration))]
-        except Exception:
-            # Absolute worst-case fallback
-            return [(0.0, 1.0)]
+        logger.exception("Scene detection failed")
+        # fallback: return whole-video range
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        cap.release()
+        duration = frame_count / max(1.0, fps)
+        return [(0.0, float(duration))]
+
+
+def sample_time_ranges(
+    video_path: str, interval_seconds: float = 90.0
+) -> List[Tuple[float, float]]:
+    """Return evenly spaced ranges without scanning every video frame."""
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+    cap.release()
+    duration = frame_count / max(1.0, fps)
+    if duration <= 0:
+        return [(0.0, 1.0)]
+
+    interval = max(15.0, float(interval_seconds))
+    ranges = []
+    start = 0.0
+    while start < duration:
+        ranges.append((start, min(start + interval, duration)))
+        start += interval
+    logger.info(
+        "Using interval sampling: %.1fs across %.1fs (%d ranges)",
+        interval,
+        duration,
+        len(ranges),
+    )
+    return ranges
 
 
 def extract_keyframes(

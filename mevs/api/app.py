@@ -11,6 +11,14 @@ from mevs.modules import ingestion, vision, fusion
 
 logger = logging.getLogger(__name__)
 
+
+def _safe_summary_from_transcript(chunks):
+    """Generate transcript-only summary without requiring OCR/video download."""
+    summaries = fusion.summarize_chunks(chunks)
+    if not summaries:
+        return "# Video Summary\n\n- No usable transcript text was found.\n"
+    return summaries[0]["markdown"]
+
 app = FastAPI(title="MEVS - Multimodal Educational Video Summarizer")
 
 
@@ -86,10 +94,21 @@ async def summarize(req: SummarizeRequest):
 
     # Step 2: when a URL exists, extract frames and run OCR over the video.
     keyframes = []
+    ocr_results = []
+    video_download_failed = False
     if url:
         try:
             ingestion.ensure_ffmpeg_available()
             video_path = vision.download_video(url)
+            if not video_path:
+                raise RuntimeError("Video download returned no file")
+
+            scenes = vision.detect_scenes(video_path)
+            keyframes = vision.extract_keyframes(
+                video_path, scenes, out_dir=os.path.join(out_root, "images")
+            )
+            keyframes = vision.filter_similar_frames(keyframes)
+            ocr_results = vision.run_ocr_on_frames(keyframes)
         except ingestion.FFMPEGNotFoundError:
             raise HTTPException(
                 status_code=503,
@@ -97,25 +116,29 @@ async def summarize(req: SummarizeRequest):
                     "ffmpeg/ffprobe is required for video and OCR processing."
                 ),
             )
-        if not video_path:
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    "Could not download the YouTube video for OCR. "
-                    "Check the link, YouTube access, or browser cookies."
-                ),
+        except Exception:
+            logger.exception(
+                "Video/OCR processing failed for %s; falling back to transcript summary",
+                url,
             )
+            video_download_failed = True
 
-        scenes = vision.detect_scenes(video_path)
-        keyframes = vision.extract_keyframes(
-            video_path, scenes, out_dir=os.path.join(out_root, "images")
+    # Step 3: summarise using transcript only if OCR/video processing fails.
+    if video_download_failed or not ocr_results:
+        summaries = fusion.summarize_chunks(chunks)
+        md = fusion.assemble_markdown(
+            summaries,
+            keyframes,
+            out_dir=out_root,
+            title="Multimodal Video Summary",
         )
-        keyframes = vision.filter_similar_frames(keyframes)
-        ocr_results = vision.run_ocr_on_frames(keyframes)
-    else:
-        ocr_results = []
+        return {
+            "markdown": md,
+            "source_url": url or None,
+            "chunks": len(chunks),
+            "mode": "transcript-only-fallback",
+        }
 
-    # Step 3: combine transcript text and OCR slide text before summarization.
     aligned = fusion.align_ocr_with_chunks(ocr_results, chunks)
     summaries = fusion.summarize_chunks(aligned)
 
