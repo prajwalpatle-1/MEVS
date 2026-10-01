@@ -1,3 +1,8 @@
+/** 
+ * ==========================================
+ * 1. VARIABLES & GLOBAL STYLES
+ * ==========================================
+ */
 :root {
   --bg: #0f1724;
   --card: #0b1220;
@@ -14,9 +19,14 @@ body {
   font-family: Inter, Segoe UI, Helvetica, Arial, sans-serif;
   background: linear-gradient(180deg, #071226 0%, #071a2e 100%);
   color: #e6eef6;
-  overflow-y: auto
+  overflow-y: auto;
 }
 
+/** 
+ * ==========================================
+ * 2. MAIN CARD LAYOUT
+ * ==========================================
+ */
 .card {
   box-sizing: border-box;
   width: 360px;
@@ -24,39 +34,57 @@ body {
   border-radius: 12px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
   box-shadow: 0 6px 18px rgba(2, 6, 23, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.03)
+  border: 1px solid rgba(255, 255, 255, 0.03);
 }
 
 .card-header {
   display: flex;
   flex-direction: column;
-  gap: 2px
+  gap: 2px;
 }
 
 .card-header h1 {
   margin: 0;
   font-size: 20px;
-  color: var(--accent-2)
+  color: var(--accent-2);
 }
 
 .card-header small {
-  color: var(--muted)
+  color: var(--muted);
 }
 
 .card-body {
-  margin-top: 10px
+  margin-top: 10px;
 }
 
+.card-footer {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/** 
+ * ==========================================
+ * 3. FORM ELEMENTS (Inputs, Textarea, Select)
+ * ==========================================
+ */
 label {
   display: block;
   margin: 12px 0 6px;
   color: #d7e7f7;
   font-size: 12px;
-  font-weight: 600
+  font-weight: 600;
+}
+
+.hint {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 input,
-textarea {
+textarea,
+select {
   box-sizing: border-box;
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -65,21 +93,27 @@ textarea {
   background: rgba(3, 10, 18, 0.55);
   color: #e6eef6;
   font: inherit;
-  resize: vertical
+  resize: vertical;
 }
 
 input:focus,
-textarea:focus {
+textarea:focus,
+select:focus {
   outline: 2px solid rgba(80, 178, 255, 0.35);
-  border-color: var(--accent)
+  border-color: var(--accent);
 }
 
-.hint {
-  margin: 6px 0;
-  color: var(--muted);
-  font-size: 11px
+/* Styles the dropdown options to match the dark theme */
+select option {
+  background: var(--card);
+  color: #e6eef6;
 }
 
+/** 
+ * ==========================================
+ * 4. BUTTONS
+ * ==========================================
+ */
 .btn-primary {
   display: inline-block;
   margin-top: 12px;
@@ -90,19 +124,49 @@ textarea:focus {
   color: #072233;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 6px 14px rgba(79, 144, 255, 0.18)
+  box-shadow: 0 6px 14px rgba(79, 144, 255, 0.18);
+  width: 100%;
 }
 
 .btn-primary:disabled {
   opacity: 0.6;
-  cursor: default
+  cursor: default;
 }
 
+.btn-secondary {
+  flex: 1; /* Makes buttons inside a flex row stretch evenly */
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: #d7e7f7;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 13px;
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+/** 
+ * ==========================================
+ * 5. STATUS, SPINNER & OUTPUT
+ * ==========================================
+ */
 .status-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px
+  margin-top: 10px;
+}
+
+.status-text {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .spinner {
@@ -113,24 +177,19 @@ textarea:focus {
   border-top-color: var(--accent);
   opacity: 0;
   transform: scale(0.7);
-  transition: all .18s ease
+  transition: all .18s ease;
 }
 
 .spinner.visible {
   opacity: 1;
   transform: scale(1);
-  animation: spin 1s linear infinite
+  animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
   to {
-    transform: rotate(360deg)
+    transform: rotate(360deg);
   }
-}
-
-.status-text {
-  color: var(--muted);
-  font-size: 13px
 }
 
 .output {
@@ -143,11 +202,22 @@ textarea:focus {
   border: 1px solid rgba(255, 255, 255, 0.02);
   font-size: 13px;
   white-space: pre-wrap;
-  color: #d7e7f7
+  color: #d7e7f7;
 }
 
-.card-footer {
+/** 
+ * ==========================================
+ * 6. DOWNLOAD SECTION EXTENSIONS
+ * ==========================================
+ */
+#downloadOptions {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.download-buttons-row {
+  display: flex;
+  gap: 10px;
   margin-top: 10px;
-  color: var(--muted);
-  font-size: 12px
 }

@@ -16,21 +16,45 @@
     <main class="card-body">
       <label for="videoUrl">Video link</label>
       <input id="videoUrl" type="url" placeholder="Paste a link" />
+      
       <p class="hint">Captions are fetched automatically when available.</p>
+      
       <label for="transcript">Or paste transcript</label>
       <textarea id="transcript" rows="5"
         placeholder="Paste transcript text here if captions are unavailable"></textarea>
+      
       <button id="summarize" class="btn-primary">Create Summary</button>
+      
       <div id="status" class="status-row">
         <span id="spinner" class="spinner" aria-hidden="true"></span>
         <span id="statusText" class="status-text">Idle</span>
       </div>
+      
       <div id="output" class="output" aria-live="polite"></div>
+      <!-- NEW: Download Options (Hidden by default) -->
+      <div id="downloadOptions" style="display: none;">
+        <label for="summarySize">Select length before downloading:</label>
+        <select id="summarySize">
+          <option value="brief">Brief</option>
+          <option value="medium">Medium</option>
+          <option value="detailed">Detailed</option>
+        </select>
+        
+        <div class="download-buttons-row">
+          <button id="downloadPdf" class="btn-secondary">Download PDF</button>
+          <button id="downloadWord" class="btn-secondary">Download Word</button>
+        </div>
+      </div>
+      <!-- END NEW -->
+
     </main>
     <footer class="card-footer">
       <small>Processed summaries are saved locally by the backend.</small>
     </footer>
   </div>
+  
+  <!-- NEW: Include the libraries locally -->
+  <script src="jspdf.umd.min.js"></script> 
   <script src="popup.js"></script>
 </body>
 
