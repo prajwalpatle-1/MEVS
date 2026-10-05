@@ -6,8 +6,9 @@ import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
-from mevs.modules import ingestion, vision, fusion
+from mevs.modules import document_export, ingestion, vision, fusion
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,12 @@ class SummarizeRequest(BaseModel):
         default="", description="Optional pasted transcript"
     )
     whisper_model: str = "small"
+
+
+class ExportRequest(BaseModel):
+    """Markdown content to export as a downloadable document."""
+
+    markdown: str = Field(min_length=1, max_length=500000)
 
 
 @app.post("/summarize")
@@ -103,7 +110,19 @@ async def summarize(req: SummarizeRequest):
             if not video_path:
                 raise RuntimeError("Video download returned no file")
 
-            scenes = vision.detect_scenes(video_path)
+            try:
+                scene_count = int(os.environ.get("MEVS_SCENE_COUNT", "8"))
+            except ValueError:
+                logger.warning("Invalid MEVS_SCENE_COUNT; using 8 intervals")
+                scene_count = 8
+            scene_count = min(max(scene_count, 1), 8)
+            scenes = vision.sample_video_ranges(
+                video_path, scene_count=scene_count
+            )
+            logger.info(
+                "Sampled video into %d fixed intervals; skipped scene detection",
+                len(scenes),
+            )
             keyframes = vision.extract_keyframes(
                 video_path, scenes, out_dir=os.path.join(out_root, "images")
             )
@@ -126,11 +145,13 @@ async def summarize(req: SummarizeRequest):
     # Step 3: summarise using transcript only if OCR/video processing fails.
     if video_download_failed or not ocr_results:
         summaries = fusion.summarize_chunks(chunks)
+        overview = fusion.summarize_overview(summaries)
         md = fusion.assemble_markdown(
             summaries,
             keyframes,
             out_dir=out_root,
             title="Multimodal Video Summary",
+            overview=overview,
         )
         return {
             "markdown": md,
@@ -141,6 +162,7 @@ async def summarize(req: SummarizeRequest):
 
     aligned = fusion.align_ocr_with_chunks(ocr_results, chunks)
     summaries = fusion.summarize_chunks(aligned)
+    overview = fusion.summarize_overview(summaries)
 
     # Save and return the Markdown summary.
     md = fusion.assemble_markdown(
@@ -148,6 +170,7 @@ async def summarize(req: SummarizeRequest):
         keyframes,
         out_dir=out_root,
         title="Multimodal Video Summary",
+        overview=overview,
     )
     return {
         "markdown": md,
@@ -155,6 +178,46 @@ async def summarize(req: SummarizeRequest):
         "chunks": len(chunks),
         "mode": "transcript-and-ocr",
     }
+
+
+@app.post("/export/{export_format}")
+async def export_summary(export_format: str, req: ExportRequest):
+    markdown = req.markdown.strip()
+    if not markdown:
+        raise HTTPException(status_code=400, detail="Summary cannot be empty")
+    if export_format not in {"docx", "pdf"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Export format must be 'docx' or 'pdf'",
+        )
+
+    out_root = os.path.abspath(os.path.join(os.getcwd(), "mevs_outputs"))
+    try:
+        if export_format == "docx":
+            content = document_export.create_docx(markdown, out_root)
+            media_type = (
+                "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document"
+            )
+        else:
+            content = document_export.create_pdf(markdown, out_root)
+            media_type = "application/pdf"
+    except Exception:
+        logger.exception("Could not export summary as %s", export_format)
+        raise HTTPException(
+            status_code=500,
+            detail="Could not create the requested summary file",
+        )
+
+    filename = f"MEVS-summary.{export_format}"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.get("/health")

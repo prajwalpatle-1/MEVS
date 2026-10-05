@@ -13,9 +13,9 @@ This repository contains:
 	- `ingestion.py` — video ingestion and audio processing (subtitle fetch,
 		`yt-dlp` audio download, Whisper transcription, chunking into timestamped
 		segments).
-	- `vision.py` — visual processing (video download, PySceneDetect-based
-		scene detection, keyframe extraction, deduplication via perceptual hashing
-		and SSIM, OCR via EasyOCR or Tesseract).
+	- `vision.py` — visual processing (video download, fast fixed-interval keyframe
+			sampling, deduplication via perceptual hashing and SSIM, OCR via EasyOCR or
+			Tesseract; PySceneDetect remains available for optional use).
 	- `fusion.py` — multimodal fusion and summarization (aligns OCR text with
 		transcript chunks, calls a summarization model, assembles Markdown output).
 - A minimal Chrome extension in `mevs/frontend/` (Manifest V3) that grabs the
@@ -31,6 +31,9 @@ summarizes the supplied text.
 Outputs and artifacts
 - Summaries and keyframes are saved under `mevs_outputs/` in the current
 	working directory when the `/summarize` endpoint is used.
+- The Markdown summary starts with a point-wise overview of the whole video,
+	requesting at least five source-grounded points, followed by detailed student
+	notes. Distinct segment notes fill any missing overview points when available.
 
 Requirements and external tools
 - Python 3.9+ (3.10/3.11 recommended)
@@ -66,7 +69,8 @@ uvicorn mevs.api.app:app --reload --port 8000
 - Open `chrome://extensions/` → Developer mode → Load unpacked → select
 	`mevs/frontend/`.
 - Click the extension popup to send the current tab's URL to
-	`http://localhost:8000/summarize` and view the returned Markdown.
+	`http://localhost:8000/summarize`, view the returned summary, and download it
+	as a Word (`.docx`) or PDF (`.pdf`) document.
 
 Using the API directly
 
@@ -79,13 +83,32 @@ POST JSON to `/summarize` with schema:
 The endpoint returns `{ "markdown": "..." }` containing the assembled
 Markdown summary and local relative links to saved keyframe images.
 
+The extension sends the returned Markdown to `/export/docx` or `/export/pdf`
+when the user selects a download format. Both export endpoints accept JSON in
+the form `{ "markdown": "..." }` and return a downloadable document; generated
+keyframe images inside `mevs_outputs/images/` are included where referenced.
+
 Configuration & notes
 - Whisper model: set `whisper_model` to a supported model name (e.g. "small",
 	"medium") to trade off speed vs accuracy. Large models require more RAM.
-- LLM summarization: `mevs/modules/fusion.py` uses FLAN-T5-large through a
-	HuggingFace Transformers text-to-text pipeline. Long transcripts are
-	summarized in bounded sections and reduced into one complete bullet-point
-	summary, so later parts of a lecture are not truncated. You can swap this
+- Frame sampling: the API divides a video into 8 evenly spaced intervals by
+	default and skips full-video scene detection. Set `MEVS_SCENE_COUNT=1` before
+	starting the API to sample only the whole-video midpoint; values from 1 to 8
+	are supported. These are time intervals, not detected scene boundaries.
+- LLM summarization: `mevs/modules/fusion.py` defaults to
+	`facebook/bart-large-cnn`, a larger BART CNN model selected for summary
+	quality over the smaller DistilBART option. It requires more memory and
+	storage and takes longer to download on first use. Set
+	`MEVS_SUMMARIZER_MODEL` before starting the API to use another compatible
+	Hugging Face model. The model is downloaded on first use and cached locally.
+- YouTube video downloads: the backend first uses yt-dlp's default YouTube
+	client, then retries once with its Android client if extraction fails. Keep
+	yt-dlp current by reinstalling requirements. If YouTube still returns HTTP
+	403, configure `MEVS_YTDLP_BROWSER` (for example, `chrome`) to use a signed-in
+	browser session, or `MEVS_YTDLP_COOKIE_FILE` to use a local Netscape-format
+	cookie file. Treat cookie files as credentials and never commit or share them.
+- Transcript and OCR text are summarized in bounded sections, normalized into
+	distinct bullet points, and reduced into an overall recap. You can swap this
 	to an OpenAI/Gemini/other API by updating `fusion.summarize_chunks` and
 	providing API keys as environment variables. For production deployments,
 	using a hosted LLM via LangChain or direct API calls with proper rate
