@@ -15,6 +15,7 @@ __pycache__/
 # Project Outputs / Generated Files
 mevs_outputs/
 CACHEDIR.TAG
+.mevs_ffmpeg/
 
 # Secrets and Config (Highly Recommended)
 .env

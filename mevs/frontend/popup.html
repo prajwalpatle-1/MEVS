@@ -31,21 +31,16 @@
       </div>
       
       <div id="output" class="output" aria-live="polite"></div>
-      <!-- NEW: Download Options (Hidden by default) -->
       <div id="downloadOptions" style="display: none;">
-        <label for="summarySize">Select length before downloading:</label>
-        <select id="summarySize">
-          <option value="brief">Brief</option>
-          <option value="medium">Medium</option>
-          <option value="detailed">Detailed</option>
-        </select>
-        
         <div class="download-buttons-row">
-          <button id="downloadPdf" class="btn-secondary">Download PDF</button>
-          <button id="downloadWord" class="btn-secondary">Download Word</button>
+          <button id="downloadDocx" class="btn-secondary" type="button">
+            Download Word (.docx)
+          </button>
+          <button id="downloadPdf" class="btn-secondary" type="button">
+            Download PDF
+          </button>
         </div>
       </div>
-      <!-- END NEW -->
 
     </main>
     <footer class="card-footer">
@@ -53,8 +48,6 @@
     </footer>
   </div>
   
-  <!-- NEW: Include the libraries locally -->
-  <script src="jspdf.umd.min.js"></script> 
   <script src="popup.js"></script>
 </body>
 
