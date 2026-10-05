@@ -24,14 +24,9 @@ import imagehash
 logger = logging.getLogger(__name__)
 
 try:
-    # REMOVE THESE LINES
-    # from scenedetect import VideoManager, SceneManager
-    # from scenedetect.detectors import ContentDetector
-
     from scenedetect import detect, ContentDetector
 except Exception:
-    VideoManager = None
-    SceneManager = None
+    detect = None
     ContentDetector = None
 
 try:
@@ -85,60 +80,84 @@ def download_video(
         opts["cookiesfrombrowser"] = (browser,)
     elif cookie_file:
         opts["cookiefile"] = cookie_file
+    download_options = [opts]
+    if not player_client:
+        android_opts = opts.copy()
+        android_opts["extractor_args"] = {
+            "youtube": {"player_client": ["android"]}
+        }
+        download_options.append(android_opts)
+
+    for attempt, download_opts in enumerate(download_options, start=1):
+        try:
+            with yt_dlp.YoutubeDL(download_opts) as ydl:
+                ydl.download([youtube_url])
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+                return out_path
+            logger.warning(
+                "YouTube download attempt %s produced no video file",
+                attempt,
+            )
+        except Exception:
+            if attempt < len(download_options):
+                logger.warning(
+                    "YouTube download attempt %s failed; retrying with "
+                    "the Android player client",
+                    attempt,
+                    exc_info=True,
+                )
+            else:
+                logger.exception("Failed to download video")
+    return None
+
+
+def _video_duration(video_path: str) -> float:
+    cap = cv2.VideoCapture(video_path)
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([youtube_url])
-        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
-            return out_path
-        logger.error("Video download output is missing or empty: %s", out_path)
-        return None
-    except Exception:
-        logger.exception("Failed to download video")
-        return None
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        return float(frame_count / max(1.0, fps))
+    finally:
+        cap.release()
 
 
-# def detect_scenes(
-#     video_path: str, threshold: float = 30.0
-# ) -> List[Tuple[float, float]]:
-#     """Return list of (start_sec, end_sec) scenes detected by
-#     PySceneDetect ContentDetector.
-#     """
-#     if VideoManager is None:
-#         logger.warning(
-#             "scenedetect not available — returning whole video as one scene"
-#         )
-#         # best-effort fallback: return the entire video length as one scene
-#         cap = cv2.VideoCapture(video_path)
-#         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-#         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-#         cap.release()
-#         duration = frame_count / max(1.0, fps)
-#         return [(0.0, float(duration))]
-#     video_manager = VideoManager([video_path])
-#     scene_manager = SceneManager()
-#     scene_manager.add_detector(ContentDetector(threshold=threshold))
-#     try:
-#         video_manager.start()
-#         scene_manager.detect_scenes(frame_source=video_manager)
-#         scene_list = scene_manager.get_scene_list()
-#         scenes: List[Tuple[float, float]] = []
-#         for start, end in scene_list:
-#             scenes.append((start.get_seconds(), end.get_seconds()))
-#         return scenes
-#     except Exception:
-#         logger.exception("Scene detection failed")
-#         # fallback: return whole-video range
-#         cap = cv2.VideoCapture(video_path)
-#         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-#         frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-#         cap.release()
-#         duration = frame_count / max(1.0, fps)
-#         return [(0.0, float(duration))]
-#     finally:
-#         try:
-#             video_manager.release()
-#         except Exception:
-#             pass
+def sample_time_ranges(
+    video_path: str, interval_seconds: float = 30.0
+) -> List[Tuple[float, float]]:
+    """Split the video duration into fixed-size intervals without scene detection."""
+    if interval_seconds <= 0:
+        raise ValueError("interval_seconds must be greater than zero")
+
+    duration = _video_duration(video_path)
+    ranges = []
+    index = 0
+    while index * interval_seconds < duration:
+        start = index * interval_seconds
+        ranges.append((start, min(start + interval_seconds, duration)))
+        index += 1
+    return ranges
+
+
+def sample_video_ranges(
+    video_path: str, scene_count: int = 8
+) -> List[Tuple[float, float]]:
+    """Divide a video into evenly spaced ranges without scanning its frames."""
+    if scene_count < 1:
+        raise ValueError("scene_count must be at least one")
+
+    duration = _video_duration(video_path)
+    if duration <= 0:
+        return []
+
+    interval = duration / scene_count
+    return [
+        (
+            index * interval,
+            duration if index == scene_count - 1 else (index + 1) * interval,
+        )
+        for index in range(scene_count)
+    ]
+
 
 def detect_scenes(
     video_path: str, threshold: float = 30.0
@@ -146,36 +165,23 @@ def detect_scenes(
     """Return list of (start_sec, end_sec) scenes detected by
     PySceneDetect ContentDetector.
     """
+    if detect is None or ContentDetector is None:
+        logger.warning(
+            "scenedetect not available — returning whole video as one scene"
+        )
+        return [(0.0, _video_duration(video_path))]
     try:
-        # Import modern PySceneDetect API locally to prevent global import crashes
-        from scenedetect import detect, ContentDetector
-        
-        # The detect() function automatically handles the video manager and processing
         scene_list = detect(video_path, ContentDetector(threshold=threshold))
-        
-        scenes: List[Tuple[float, float]] = []
-        for start, end in scene_list:
-            scenes.append((start.get_seconds(), end.get_seconds()))
-            
-        # If no scenes were found (e.g., very short/static video), force fallback
+        scenes = [
+            (start.get_seconds(), end.get_seconds())
+            for start, end in scene_list
+        ]
         if not scenes:
-            raise ValueError("No scenes found, falling back to full duration.")
-            
+            return [(0.0, _video_duration(video_path))]
         return scenes
-
     except Exception:
-        logger.exception("Scene detection failed or scenedetect not available")
-        # best-effort fallback: return the entire video length as one scene
-        try:
-            cap = cv2.VideoCapture(video_path)
-            fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-            frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-            cap.release()
-            duration = frame_count / max(1.0, fps)
-            return [(0.0, float(duration))]
-        except Exception:
-            # Absolute worst-case fallback
-            return [(0.0, 1.0)]
+        logger.exception("Scene detection failed")
+        return [(0.0, _video_duration(video_path))]
 
 
 def extract_keyframes(
