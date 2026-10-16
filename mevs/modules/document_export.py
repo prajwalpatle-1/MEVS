@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import base64
 from io import BytesIO
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -22,6 +23,10 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer
 _IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 _HEADING_PATTERN = re.compile(r"^(#{1,3})\s+(.*)$")
 _BULLET_PATTERN = re.compile(r"^[-*]\s+(.*)$")
+_DATA_IMAGE_PATTERN = re.compile(
+    r"^data:image/(jpeg|png);base64,([A-Za-z0-9+/]+={0,2})$",
+    re.IGNORECASE,
+)
 
 
 def _resolve_local_image(image_reference: str, output_dir: str) -> Path | None:
@@ -48,9 +53,18 @@ def _markdown_parts(markdown: str, output_dir: str):
             continue
         image_match = _IMAGE_PATTERN.fullmatch(stripped)
         if image_match:
-            image_path = _resolve_local_image(image_match.group(1), output_dir)
-            if image_path:
-                yield "image", image_path
+            reference = image_match.group(1)
+            data_match = _DATA_IMAGE_PATTERN.fullmatch(reference)
+            if data_match:
+                try:
+                    image_bytes = base64.b64decode(data_match.group(2), validate=True)
+                    yield "image_bytes", image_bytes
+                except ValueError:
+                    pass
+            else:
+                image_path = _resolve_local_image(reference, output_dir)
+                if image_path:
+                    yield "image", image_path
             continue
         heading_match = _HEADING_PATTERN.match(stripped)
         if heading_match:
@@ -85,6 +99,8 @@ def create_docx(markdown: str, output_dir: str) -> bytes:
             document.add_paragraph(content, style="List Bullet")
         elif kind == "image":
             document.add_picture(str(content), width=Inches(6.2))
+        elif kind == "image_bytes":
+            document.add_picture(BytesIO(content), width=Inches(6.2))
         else:
             document.add_paragraph(content)
 
@@ -136,6 +152,13 @@ def create_pdf(markdown: str, output_dir: str) -> bytes:
             story.append(Spacer(1, 6))
             story.append(
                 Image(str(content), width=6.3 * inch, height=4.2 * inch,
+                      kind="proportional", hAlign="CENTER")
+            )
+            story.append(Spacer(1, 10))
+        elif kind == "image_bytes":
+            story.append(Spacer(1, 6))
+            story.append(
+                Image(BytesIO(content), width=6.3 * inch, height=4.2 * inch,
                       kind="proportional", hAlign="CENTER")
             )
             story.append(Spacer(1, 10))
