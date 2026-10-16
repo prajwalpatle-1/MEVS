@@ -106,7 +106,7 @@ btn.addEventListener('click', async () => {
       const data = await res.json();
       if (typeof data.markdown === 'string' && data.markdown.trim()) {
         generatedMarkdown = data.markdown;
-        output.textContent = data.markdown;
+        renderSummary(data.markdown);
         output.scrollIntoView({ block: 'start' });
         
         // Show download options once summary is successfully generated
@@ -166,3 +166,87 @@ document.getElementById('downloadDocx')?.addEventListener('click', () => {
 document.getElementById('downloadPdf')?.addEventListener('click', () => {
   downloadSummary('pdf');
 });
+
+function renderSummary(markdown) {
+  output.replaceChildren();
+  let activeList = null;
+
+  for (const rawLine of markdown.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      activeList = null;
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const element = document.createElement(`h${heading[1].length}`);
+      element.textContent = stripInlineMarkdown(heading[2]);
+      output.appendChild(element);
+      activeList = null;
+      continue;
+    }
+
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      if (!activeList) {
+        activeList = document.createElement('ul');
+        output.appendChild(activeList);
+      }
+      const item = document.createElement('li');
+      item.textContent = stripInlineMarkdown(bullet[1]);
+      activeList.appendChild(item);
+      continue;
+    }
+
+    const image = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if (image) {
+      const source = resolveSummaryImage(image[2]);
+      if (source) {
+        const figure = document.createElement('figure');
+        figure.className = 'summary-figure';
+        const img = document.createElement('img');
+        img.src = source;
+        img.alt = image[1] || 'Video keyframe';
+        img.loading = 'lazy';
+        img.onerror = () => {
+          figure.replaceChildren();
+          const caption = document.createElement('figcaption');
+          caption.textContent = 'Keyframe image is unavailable.';
+          figure.appendChild(caption);
+        };
+        figure.appendChild(img);
+        if (image[1]) {
+          const caption = document.createElement('figcaption');
+          caption.textContent = image[1];
+          figure.appendChild(caption);
+        }
+        output.appendChild(figure);
+      }
+      activeList = null;
+      continue;
+    }
+
+    const paragraph = document.createElement('p');
+    paragraph.textContent = stripInlineMarkdown(line);
+    output.appendChild(paragraph);
+    activeList = null;
+  }
+}
+
+function resolveSummaryImage(reference) {
+  if (/^data:image\/(?:png|jpe?g|webp);base64,/i.test(reference)) {
+    return reference;
+  }
+
+  const normalized = reference.replace(/\\/g, '/');
+  const match = normalized.match(/^images\/([\w.-]+\.(?:jpe?g|png|webp))$/i);
+  if (!match || match[1].includes('..')) return null;
+  return `${apiBaseUrl}/images/${encodeURIComponent(match[1])}`;
+}
+
+function stripInlineMarkdown(text) {
+  return text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*_`]/g, '');
+}

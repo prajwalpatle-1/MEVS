@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import os
 import logging
+import tempfile
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from mevs.modules import document_export, ingestion, vision, fusion
 
@@ -54,7 +55,7 @@ class SummarizeRequest(BaseModel):
 class ExportRequest(BaseModel):
     """Markdown content to export as a downloadable document."""
 
-    markdown: str = Field(min_length=1, max_length=500000)
+    markdown: str = Field(min_length=1, max_length=5000000)
 
 
 @app.post("/summarize")
@@ -104,46 +105,121 @@ async def summarize(req: SummarizeRequest):
     ocr_results = []
     video_download_failed = False
     if url:
+        video_temp_dir = tempfile.TemporaryDirectory(prefix="mevs_video_")
         try:
-            ingestion.ensure_ffmpeg_available()
-            video_path = vision.download_video(url)
-            if not video_path:
-                raise RuntimeError("Video download returned no file")
-
             try:
-                scene_count = int(os.environ.get("MEVS_SCENE_COUNT", "8"))
-            except ValueError:
-                logger.warning("Invalid MEVS_SCENE_COUNT; using 8 intervals")
-                scene_count = 8
-            scene_count = min(max(scene_count, 1), 8)
-            scenes = vision.sample_video_ranges(
-                video_path, scene_count=scene_count
-            )
-            logger.info(
-                "Sampled video into %d fixed intervals; skipped scene detection",
-                len(scenes),
-            )
-            keyframes = vision.extract_keyframes(
-                video_path, scenes, out_dir=os.path.join(out_root, "images")
-            )
-            keyframes = vision.filter_similar_frames(keyframes)
-            ocr_results = vision.run_ocr_on_frames(keyframes)
-        except ingestion.FFMPEGNotFoundError:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "ffmpeg/ffprobe is required for video and OCR processing."
-                ),
-            )
-        except Exception:
-            logger.exception(
-                "Video/OCR processing failed for %s; falling back to transcript summary",
-                url,
-            )
-            video_download_failed = True
+                ingestion.ensure_ffmpeg_available()
+                video_path = vision.download_video(
+                    url,
+                    os.path.join(video_temp_dir.name, "video.mp4"),
+                )
+                if not video_path:
+                    raise RuntimeError("Video download returned no file")
+
+                try:
+                    candidate_count = int(
+                        os.environ.get("MEVS_FRAME_CANDIDATES", "32")
+                    )
+                except ValueError:
+                    logger.warning("Invalid MEVS_FRAME_CANDIDATES; using 32")
+                    candidate_count = 32
+                candidate_count = min(max(candidate_count, 8), 128)
+                try:
+                    max_keyframes = int(
+                        os.environ.get("MEVS_MAX_KEYFRAMES", "8")
+                    )
+                except ValueError:
+                    logger.warning("Invalid MEVS_MAX_KEYFRAMES; using 8")
+                    max_keyframes = 8
+                max_keyframes = min(max(max_keyframes, 1), 32)
+                scenes = vision.sample_video_ranges(
+                    video_path, scene_count=candidate_count
+                )
+                logger.info(
+                    "Sampled %d candidate intervals; ranking up to %d frames",
+                    len(scenes),
+                    max_keyframes,
+                )
+                with tempfile.TemporaryDirectory(
+                    prefix="mevs_frames_"
+                ) as temp_dir:
+                    candidate_frames = vision.extract_keyframes(
+                        video_path,
+                        scenes,
+                        out_dir=os.path.join(temp_dir, "images"),
+                    )
+                    candidate_ocr = vision.run_ocr_on_frames(candidate_frames)
+                    ocr_by_path = {
+                        os.path.normcase(os.path.abspath(item["image_path"])): item
+                        for item in candidate_ocr
+                        if item.get("image_path")
+                    }
+                    for frame in candidate_frames:
+                        ocr_item = ocr_by_path.get(
+                            os.path.normcase(
+                                os.path.abspath(frame["image_path"])
+                            )
+                        )
+                        frame["ocr_text"] = (
+                            ocr_item.get("text", "") if ocr_item else ""
+                        )
+
+                    keyframes = vision.select_important_frames(
+                        candidate_frames,
+                        chunks,
+                        max_frames=max_keyframes,
+                    )
+                    keyframes = vision.filter_similar_frames(
+                        keyframes,
+                        hash_threshold=4,
+                        ssim_threshold=0.96,
+                    )
+                    selected_images = {}
+                    for frame in keyframes:
+                        image_path = frame["image_path"]
+                        normalized_path = os.path.normcase(
+                            os.path.abspath(image_path)
+                        )
+                        with open(image_path, "rb") as image_file:
+                            image_bytes = image_file.read()
+                        selected_images[normalized_path] = image_bytes
+                        frame["image_bytes"] = image_bytes
+                        frame.pop("image_path", None)
+                        frame.pop("path", None)
+                        frame.pop("ocr_text", None)
+
+                    ocr_results = []
+                    for item in candidate_ocr:
+                        image_path = item.get("image_path")
+                        if not image_path:
+                            continue
+                        normalized_path = os.path.normcase(
+                            os.path.abspath(image_path)
+                        )
+                        image_bytes = selected_images.get(normalized_path)
+                        if image_bytes is None:
+                            continue
+                        item["image_bytes"] = image_bytes
+                        ocr_results.append(item)
+            except ingestion.FFMPEGNotFoundError:
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "ffmpeg/ffprobe is required for video and OCR processing."
+                    ),
+                )
+            except Exception:
+                logger.exception(
+                    "Video/OCR processing failed for %s; falling back to transcript summary",
+                    url,
+                )
+                video_download_failed = True
+        finally:
+            video_temp_dir.cleanup()
 
     # Step 3: summarise using transcript only if OCR/video processing fails.
-    if video_download_failed or not ocr_results:
+    has_ocr_text = any(str(item.get("text", "")).strip() for item in ocr_results)
+    if video_download_failed or not has_ocr_text:
         summaries = fusion.summarize_chunks(chunks)
         overview = fusion.summarize_overview(summaries)
         md = fusion.assemble_markdown(
@@ -152,6 +228,7 @@ async def summarize(req: SummarizeRequest):
             out_dir=out_root,
             title="Multimodal Video Summary",
             overview=overview,
+            save_markdown=True,
         )
         return {
             "markdown": md,
@@ -171,6 +248,7 @@ async def summarize(req: SummarizeRequest):
         out_dir=out_root,
         title="Multimodal Video Summary",
         overview=overview,
+        save_markdown=True,
     )
     return {
         "markdown": md,
@@ -178,6 +256,37 @@ async def summarize(req: SummarizeRequest):
         "chunks": len(chunks),
         "mode": "transcript-and-ocr",
     }
+
+
+@app.get("/images/{filename}")
+def get_keyframe(filename: str):
+    """Serve generated keyframes to the browser extension."""
+    if os.path.basename(filename) != filename:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    image_root = os.path.realpath(
+        os.path.join(os.getcwd(), "mevs_outputs", "images")
+    )
+    image_path = os.path.realpath(os.path.join(image_root, filename))
+    if os.path.commonpath((image_root, image_path)) != image_root:
+        raise HTTPException(status_code=404, detail="Image not found")
+    if not os.path.isfile(image_path):
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    extension = os.path.splitext(filename)[1].lower()
+    media_types = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+    }
+    if extension not in media_types:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(
+        image_path,
+        media_type=media_types[extension],
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/export/{export_format}")
