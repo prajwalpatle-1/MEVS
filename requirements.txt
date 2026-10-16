@@ -16,6 +16,8 @@ ffmpeg-python>=0.2.0,<1.0
 # Video processing / OCR
 opencv-python>=4.10,<5.0
 scenedetect>=0.6.4,<1.0
+rapidocr>=3,<4
+onnxruntime>=1.18,<2.0
 easyocr>=1.7.1,<2.0
 pytesseract>=0.3.10,<1.0
 Pillow>=10.4.0,<11.0
