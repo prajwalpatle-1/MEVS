@@ -29,8 +29,10 @@ transcript can also be submitted without a link; this skips video and OCR and
 summarizes the supplied text.
 
 Outputs and artifacts
-- Summaries and keyframes are saved under `mevs_outputs/` in the current
-	working directory when the `/summarize` endpoint is used.
+- Text-only summaries are saved under `mevs_outputs/`. Downloaded source videos
+	and candidate frames are kept only in per-request temporary directories and
+	deleted after processing. Selected images are embedded in the in-memory
+	response and in user-requested exports.
 - The Markdown summary starts with a point-wise overview of the whole video,
 	requesting at least five source-grounded points, followed by detailed student
 	notes. Distinct segment notes fill any missing overview points when available.
@@ -38,7 +40,9 @@ Outputs and artifacts
 Requirements and external tools
 - Python 3.9+ (3.10/3.11 recommended)
 - ffmpeg accessible on `PATH` (required by `yt-dlp` and audio post-processing)
-- System OCR (Tesseract) only required if you prefer `pytesseract` fallback.
+- OCR uses RapidOCR with ONNX Runtime by default. EasyOCR is a fallback; the
+	Tesseract application is optional and only needed if both Python OCR engines
+	cannot run.
 
 Quick start (Windows example)
 
@@ -91,10 +95,12 @@ keyframe images inside `mevs_outputs/images/` are included where referenced.
 Configuration & notes
 - Whisper model: set `whisper_model` to a supported model name (e.g. "small",
 	"medium") to trade off speed vs accuracy. Large models require more RAM.
-- Frame sampling: the API divides a video into 8 evenly spaced intervals by
-	default and skips full-video scene detection. Set `MEVS_SCENE_COUNT=1` before
-	starting the API to sample only the whole-video midpoint; values from 1 to 8
-	are supported. These are time intervals, not detected scene boundaries.
+- Frame selection: the API samples 32 candidate frames across the whole video,
+	runs RapidOCR, then ranks candidates against nearby transcript/OCR text with
+	CLIP. It keeps up to 8 high-scoring, distinct frames spread across the timeline. Set
+	`MEVS_FRAME_CANDIDATES` (8–128) or `MEVS_MAX_KEYFRAMES` (1–32) before starting
+	the API to adjust the speed/coverage tradeoff. CLIP weights download on first
+	use; if unavailable, image sharpness and OCR text density provide a fallback.
 - LLM summarization: `mevs/modules/fusion.py` defaults to
 	`facebook/bart-large-cnn`, a larger BART CNN model selected for summary
 	quality over the smaller DistilBART option. It requires more memory and
@@ -102,8 +108,9 @@ Configuration & notes
 	`MEVS_SUMMARIZER_MODEL` before starting the API to use another compatible
 	Hugging Face model. The model is downloaded on first use and cached locally.
 - YouTube video downloads: the backend first uses yt-dlp's default YouTube
-	client, then retries once with its Android client if extraction fails. Keep
-	yt-dlp current by reinstalling requirements. If YouTube still returns HTTP
+	client with any installed Deno/Node JavaScript runtime, then retries once
+	with its Android client if extraction fails. Keep yt-dlp and its EJS
+	components current by reinstalling requirements. If YouTube still returns HTTP
 	403, configure `MEVS_YTDLP_BROWSER` (for example, `chrome`) to use a signed-in
 	browser session, or `MEVS_YTDLP_COOKIE_FILE` to use a local Netscape-format
 	cookie file. Treat cookie files as credentials and never commit or share them.
